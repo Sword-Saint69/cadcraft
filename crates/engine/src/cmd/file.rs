@@ -30,6 +30,19 @@ pub struct IoHooks {
 
 static IO: OnceLock<IoHooks> = OnceLock::new();
 
+/// Read one page of a PDF file (installed by hosts whose reader supports it).
+pub type ReadPdfPageHook = fn(&[u8], &str, usize) -> std::result::Result<Drawing, String>;
+
+static READ_PDF_PAGE: OnceLock<ReadPdfPageHook> = OnceLock::new();
+
+/// Install the host's single-page PDF reader; PDFIMPORT with `page` uses it.
+pub fn set_read_pdf_page(h: ReadPdfPageHook) {
+    let _ = READ_PDF_PAGE.set(h);
+}
+pub fn read_pdf_page() -> Option<ReadPdfPageHook> {
+    READ_PDF_PAGE.get().copied()
+}
+
 pub fn set_io(h: IoHooks) {
     let _ = IO.set(h);
 }

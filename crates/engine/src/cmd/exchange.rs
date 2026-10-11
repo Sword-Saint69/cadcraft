@@ -1,6 +1,7 @@
 //! Moving drawings in and out: EXPORT (DXF, DWG, SVG, PNG or PDF), IMPORT (the objects of another
-//! DXF/DWG file), PREVIEW (a picture of the plot) and PUBLISH (plot several sheets at once).
-//! ATTACH, SHARE and 3DORBIT are registered so the tool bar and command line say they are not
+//! DXF/DWG/PDF file, or a raster image as one IMAGE), PREVIEW (a picture of the plot) and PUBLISH (plot several sheets at once).
+//! ATTACH dispatches to IMPORT, PDFIMPORT or IMAGEATTACH by file type (see [`super::image`]);
+//! SHARE and 3DORBIT are registered so the tool bar and command line say they are not
 //! available yet.
 //!
 //! Files go through the host's io hooks ([`super::file::io`]) like OPEN and SAVEAS, so the engine
@@ -34,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("import", "Import...", run_import)
             .menu(&["File", "Import..."])
             .alias(&["imp"])
-            .params("{path | data: base64, name?: \"x.dwg\"} (DXF or DWG), at?: [x,y] (default 0,0), scale?: (default 1) → {imported, handles, layers, styles, blocks}"),
+            .params("{path | data: base64, name?: \"x.dwg\"} (DXF, DWG, PDF vector paths, or PNG/JPG/JPEG as one IMAGE), page?: PDF page (1-based, default all), at?: [x,y] (default 0,0), scale?: (default 1) → {imported, handles, layers, styles, blocks}"),
         CommandSpec::new("export", "Export...", run_export)
             .menu(&["File", "Export..."])
             .alias(&["exp"])
@@ -49,11 +50,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["File", "Batch Publish..."])
             .params("{path?: \"NAME.pdf\" (writes NAME-<sheet>.pdf per sheet; else returns base64 `data` per sheet), layouts?: [name | \"Model\"] (default: Model if it has objects, then every layout in tab order)} → {sheets: [{layout, bytes, path? | data}]}")
             .noundo(),
-        CommandSpec::new("attach", "Attach", |_, _| {
-            Err(EngineError::Other("ATTACH is not available yet: raster images and PDF/DWF/DGN underlays can't be shown yet".into()))
-        })
-        .params("not available yet")
-        .noundo(),
         CommandSpec::new("share", "Share", |_, _| {
             Err(EngineError::Other("SHARE is not available yet: there is no online service to share through; EXPORT or PUBLISH the drawing and send the file".into()))
         })
@@ -129,9 +125,29 @@ fn run_import(s: &mut Session, p: &Value) -> Result<Value> {
         let data = str_param(p, "data").ok_or_else(|| bad("import", "`path` or `data` (base64) is required"))?;
         (base64_decode(data).ok_or_else(|| bad("import", "invalid base64"))?, str_param(p, "name").unwrap_or("import.dxf").to_string())
     };
+    // One PDF page when asked (the io hook imports every page otherwise).
+    let ext = std::path::Path::new(&name).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if ext == "pdf"
+        && let Some(v) = p.get("page")
+    {
+        let n = v.as_u64().ok_or_else(|| bad("import", "`page` must be a page number (1-based)"))?;
+        if n == 0 || n > 256 {
+            return Err(bad("import", "`page` must be 1..=256"));
+        }
+        let read_page = super::file::read_pdf_page().ok_or_else(|| bad("import", "single-page PDF import is not available in this build"))?;
+        let src = read_page(&bytes, &name, n as usize).map_err(|e| bad("import", e))?;
+        let file = std::path::Path::new(&name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        return import_drawing(s, &src, at, scale, &file);
+    }
     let src = (hooks.read)(&bytes, &name).map_err(|e| bad("import", e))?;
     let file = std::path::Path::new(&name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     import_drawing(s, &src, at, scale, &file)
+}
+
+/// [`import_drawing`] for the image/PDF commands (same merge, shared so ATTACH, IMPORT
+/// and PDFIMPORT behave alike).
+pub(crate) fn import_drawing_for(s: &mut Session, src: &Drawing, at: Vec2, scale: f64, file: &str) -> Result<Value> {
+    import_drawing(s, src, at, scale, file)
 }
 
 /// Copy `src`'s model space into the current space (scaled about the origin, then moved to
@@ -613,11 +629,13 @@ mod tests {
     }
 
     #[test]
-    fn attach_share_and_orbit_say_they_are_not_available_yet() {
+    fn share_and_orbit_say_they_are_not_available_yet() {
         let mut s = session();
-        for c in ["attach", "share", "3dorbit", "orbit"] {
+        for c in ["share", "3dorbit", "orbit"] {
             let e = s.execute(&resolve_alias(c), &Value::Null).unwrap_err().to_string();
             assert!(e.contains("not available yet"), "{c}: {e}");
         }
+        // ATTACH dispatches by file type now (see the image commands' tests).
+        assert!(s.execute("attach", &Value::Null).is_err());
     }
 }

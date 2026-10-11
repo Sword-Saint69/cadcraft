@@ -102,8 +102,8 @@ early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% wr
 | DWT templates | open, save | no (no template support) | 3–5 |
 | DWS standards | open, save, CHECKSTANDARDS | no | 6–10 |
 | PDF output (PLOT, EXPORTPDF) | multi-sheet, layers, searchable text, hyperlinks | vector PDF 1.4, one page, lineweights; **no font objects** (text is strokes), no layers (OCG), no multi-sheet | 10–15 |
-| PDF import (PDFIMPORT) and PDF underlays (PDFATTACH) | yes | no | 15–25 |
-| Raster images attach (PNG, JPEG, TIFF, BMP …) | yes | IMAGE entity exists, no attach/loading/display path | 6–10 |
+| PDF import (PDFIMPORT) and PDF underlays (PDFATTACH) | yes | vector paths import as LINEs on PDF_IMPORT (one page via `page`, or all side by side); text, dimensions, images and shadings skipped; no separate underlay object (PDFATTACH imports the same linework) | 8–12 |
+| Raster images attach (PNG, JPEG) | yes | IMAGEATTACH/IMPORT/OPEN (one unit per pixel, `at`/`scale`/`width`), IMAGEADJUST/CLIP/FRAME/DETACH, ATTACH dispatcher; TIFF/BMP/GIF not read; pixels shown as frame + diagonals (no pixel blitting yet) | 3–5 |
 | PNG / JPEG / BMP / TIFF export | PNGOUT, JPGOUT, BMPOUT, TIFOUT | PNG; SVG too (AutoCAD doesn't export SVG) | 1–2 |
 | DWF/DWFx export, DWF underlay | yes | no | 10–15 |
 | DGN import/export/underlay | yes | no (needs a public spec; owner decision) | 25–40 |
@@ -130,6 +130,7 @@ our output in AutoCAD black-box.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | PDF vector import (PDFIMPORT/PDFATTACH, `page`) and PNG/JPEG attach (IMAGEATTACH et al.) landed (#629) |
 | 2026-10-11 | minor | DXF (ASCII and binary) and DWG saved at 2000–2018, 2018 by default (#421) |
 | 2026-10-10 | minor | WIPEOUT and gradients written since #147/#162; other save losses remain (#201, #204, #208, #209, #213, #223) |
 | 2026-10-10 | major | First file-format parity doc: DWG and DXF version by version, per-object read/write, other formats |
