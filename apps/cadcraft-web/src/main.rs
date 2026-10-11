@@ -80,6 +80,7 @@ mod web {
         cadcraft_engine::cmd::file::set_write_as(|d, name, o| {
             cadcraft_io::write_with(d, name, &cadcraft_io::SaveOptions { version: o.version, binary: o.binary }).map_err(|e| e.to_string())
         });
+        cadcraft_engine::cmd::file::set_read_pdf_page(|b, name, n| cadcraft_io::read_pdf_page(b, name, n).map_err(|e| e.to_string()));
         // `?host=parent`: a same-origin page framing CADCraft (such as a Nextcloud app) opens
         // drawings in it and stores what it saves. Otherwise there is no file system here: saved
         // files reach the user as browser downloads.

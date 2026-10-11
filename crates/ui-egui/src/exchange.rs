@@ -23,10 +23,12 @@ pub fn route(app: &mut CadApp, id: &str) -> Result<Value, String> {
             app.ui.dialog = Some("preview".into());
             Ok(Value::Null)
         }
-        "import" | "imp" => {
-            let Some(pick) = app.services.pick_open.as_ref() else { return no_picker(app, "IMPORT", r#"import {"path": "parts.dxf"}"#) };
+        "import" | "imp" | "pdfimport" | "pdfimp" | "pdfattach" | "imageattach" | "iat" | "attach" => {
+            let Some(pick) = app.services.pick_open.as_ref() else {
+                return no_picker(app, &id.to_ascii_uppercase(), &format!("{id} {{\"path\": \"drawing.pdf\"}}"));
+            };
             match pick() {
-                Some(path) => app.run("import", json!({ "path": path })),
+                Some(path) => app.run(&cadcraft_engine::cmd::resolve_alias(id), json!({ "path": path })),
                 None => Ok(Value::Null),
             }
         }

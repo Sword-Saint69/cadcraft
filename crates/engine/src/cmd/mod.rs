@@ -18,6 +18,7 @@ mod gripcmds;
 mod griphot;
 pub(crate) mod groups;
 pub(crate) mod hatch;
+mod image;
 mod inquiry;
 mod layer;
 mod layout;
@@ -178,6 +179,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(annotate::specs());
         v.extend(annoscale::specs());
         v.extend(hatch::specs());
+        v.extend(image::specs());
         v.extend(overkill::specs());
         v.extend(blocks::specs());
         v.extend(modify::specs());

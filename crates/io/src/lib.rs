@@ -18,6 +18,8 @@ pub mod svg;
 
 /// Multilines and their styles (MLINE, MLINESTYLE).
 mod dxf_mline;
+pub mod pdf_import;
+pub mod raster_import;
 
 use cadcraft_doc::{Drawing, Space};
 use cadcraft_geom::Bounds2;
@@ -55,16 +57,25 @@ fn ext(name: &str) -> String {
 }
 
 /// Read a drawing; the format comes from the content (DXF ASCII/binary) or the name.
+/// PDF files import their vector paths (see [`pdf_import`]); PNG/JPEG files attach as
+/// one raster IMAGE (see [`raster_import`]).
 pub fn read(bytes: &[u8], name: &str) -> Result<Drawing> {
     if cadcraft_dwg::is_dwg(bytes) {
         let dxf = cadcraft_dwg::dwg_to_dxf(bytes).map_err(IoError::Format)?;
         return dxf_read::read(&dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")));
     }
     match ext(name).as_str() {
+        "pdf" => pdf_import::drawing_for_pdf(bytes, name, None),
+        "png" | "jpg" | "jpeg" => raster_import::drawing_for_raster(bytes, name),
         "dxf" | "" => dxf_read::read(bytes),
         e if bytes.len() > 4 => dxf_read::read(bytes).map_err(|_| IoError::Unsupported(e.to_string())),
         e => Err(IoError::Unsupported(e.to_string())),
     }
+}
+
+/// Read one page of a PDF file (1-based); other formats ignore `page`.
+pub fn read_pdf_page(bytes: &[u8], name: &str, page: usize) -> Result<Drawing> {
+    pdf_import::drawing_for_pdf(bytes, name, Some(page))
 }
 
 /// Write a drawing in the format chosen by the name's extension. Images (PNG, SVG, PDF) show
