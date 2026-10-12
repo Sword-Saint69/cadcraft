@@ -74,7 +74,18 @@ impl Remote {
 
 /// Methods that only read state, so resending them after a lost reply cannot change the drawing twice.
 fn is_read_only(method: &str) -> bool {
-    matches!(method, "drawing.inspect" | "document.inspect" | "engine.commands" | "cmdline.state" | "ui.inspect" | "ui.render" | "ui.screenshot")
+    matches!(
+        method,
+        "drawing.inspect"
+            | "document.inspect"
+            | "engine.commands"
+            | "cmdline.state"
+            | "ui.inspect"
+            | "ui.elements"
+            | "ui.menu.list"
+            | "ui.render"
+            | "ui.screenshot"
+    )
 }
 
 impl Backend for Remote {
@@ -230,7 +241,8 @@ impl Backend for Headless {
                 let id = if p.get("path").is_some() { "saveas" } else { "qsave" };
                 s.execute(id, &p).map_err(|e| e.to_string())
             }
-            "ui.screenshot" => Err("no UI in headless mode; use render".into()),
+            "ui.screenshot" | "ui.inspect" | "ui.elements" | "ui.focus" | "ui.pointer" | "ui.click" | "ui.move" | "ui.drag" | "ui.key"
+            | "ui.text" | "ui.set" | "ui.resize" | "ui.menu.list" | "ui.menu.invoke" | "app.quit" => Err("no UI in headless mode; use render".into()),
             other => Err(format!("unknown method `{other}`")),
         }
     }

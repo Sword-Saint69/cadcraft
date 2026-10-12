@@ -23,6 +23,14 @@ Example client configuration (Claude Code / Claude Desktop):
 { "mcpServers": { "cadcraft": { "command": "cadcraft-cli", "args": ["mcp"] } } }
 ```
 
+VS Code (`mcpServers` in settings, bridged to a running app):
+
+```json
+{ "mcpServers": { "cadcraft": { "command": "cadcraft-cli", "args": ["mcp", "--connect", "127.0.0.1:7979"] } } }
+```
+
+Run `cadcraft-cli mcp --help` to print the full tool list with input schemas.
+
 ## Tools
 
 | Tool | What it does |
@@ -31,11 +39,19 @@ Example client configuration (Claude Code / Claude Desktop):
 | `script {text}` | A multi-line script (like `.scr` files). |
 | `execute {command, params}` | Any command with JSON parameters, never a dialog. `list_commands` shows ids and parameter docs. |
 | `list_commands {filter?}` | The command catalog; `filter` matches part of a command's id, label or an alias. |
-| `inspect_drawing {entities?, limit?}` | Counts, extents, layers, styles, blocks, layouts, selection, undo history and entities. |
+| `inspect_drawing {entities?, limit?}` | Counts, extents, layers, styles, blocks, layouts, selection, undo history and entities. `query_entities` is the filtered/paged variant. |
 | `query_entities {type?, layer?, window?, crossing?, limit?, offset?}` | Filtered entities with handles and geometry. `window` `[[x0,y0],[x1,y1]]` finds objects whose geometry is inside it or crosses it (`crossing: false`: entirely inside). `count` is every match, `returned` the page (`offset`, `limit`, default 500). |
 | `render {width?, height?, fit?}` | A PNG image of the drawing. |
-| `new_drawing {metric?}`, `open {path}`, `save {path?}`, `cancel` | Files and Escape. `save` to a `.svg`, `.png` or `.pdf` path exports: the drawing keeps its name and unsaved changes. |
-| `screenshot`, `ui_inspect`, `ui_click {x, y}` | Only when connected to the app. |
+| `new_drawing {metric?}`, `open {path}`, `save {path?}` | Files. `save` to a `.svg`, `.png` or `.pdf` path exports: the drawing keeps its name and unsaved changes. |
+| `cancel`, `press_enter`, `cmdline_state` | Escape, Enter, and read-only prompt poll (prompt, running command, keywords, accept, history). |
+| `screenshot`, `ui_inspect` | Only when connected to the app. Window PNG; UI state (panels, canvas rect, view, cursor/snap, perf). |
+| `ui_click {x, y, space?, button?}` | Click in the drawing area (world by default, `space:"screen"` for screen). Right button = Enter. App only. |
+| `ui_elements {label?, role?, focused?}` | Observed widgets from the latest frame (id, label, role, rect, enabled/visible/selected, focus). App only. |
+| `ui_menu_list`, `ui_menu_invoke {command}` | Menu tree; invoke an item like a click (interactive). App only. |
+| `ui_key {key, cmd?, shift?, alt?, ctrl?}`, `ui_text {text}` | Synthetic keyboard input (queued egui events; poll `ui_inspect`/`ui_elements`). App only. |
+| `ui_click_screen {x, y, button?, shift?, ctrl?}`, `ui_move {x, y}`, `ui_drag {x, y, to}` | Real egui pointer input in screen points. App only. |
+| `ui_set {...}`, `ui_resize {width, height}`, `ui_focus` | Palettes/theme/saveFormat/saveVersion, window size, native focus. App only. |
+| `quit` | Quit the app without the save prompt. App only. |
 
 Resources: `cadcraft://drawing` (inspect JSON) and `cadcraft://commands` (catalog).
 

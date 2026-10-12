@@ -59,7 +59,7 @@ const USAGE: &str = "usage:
   cadcraft-cli convert IN.dxf OUT.(dxf|dwg|svg|png|pdf) [FRAMING]
   cadcraft-cli run [FILE | --sample | --metric] [--script TEXT] [--script-file F.scr] [--cmd 'id {json}']... [--save OUT.dxf] [--export OUT.(png|svg|pdf)] [FRAMING]
   cadcraft-cli commands [FILTER]
-  cadcraft-cli mcp [--connect HOST:PORT]
+  cadcraft-cli mcp [--help] [--connect HOST:PORT]
   cadcraft-cli perf [N]
   cadcraft-cli sample (bracket|floorplan) OUT.(dxf|dwg|svg|png)
   cadcraft-cli --version
@@ -491,6 +491,7 @@ fn parse_mcp_args(args: &[String]) -> Result<McpTarget, String> {
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--help" | "-h" => return Err("help".into()),
             "--connect" => {
                 let addr = it
                     .next()
@@ -509,6 +510,13 @@ fn parse_mcp_args(args: &[String]) -> Result<McpTarget, String> {
 }
 
 fn mcp(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        outln!("cadcraft-cli mcp [--connect HOST:PORT]  MCP server on stdio (headless or bridged to the app)");
+        outln!("");
+        outln!("tools (connected, with UI):");
+        outln!("{}", serde_json::to_string_pretty(&cadcraft_mcp::tool_definitions_json(true)).unwrap_or_default());
+        return Ok(());
+    }
     let backend: Box<dyn cadcraft_mcp::Backend> = match parse_mcp_args(args)? {
         McpTarget::Connect(addr) => match cadcraft_mcp::Remote::connect(&addr) {
             Ok(r) => Box::new(r),

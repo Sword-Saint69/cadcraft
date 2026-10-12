@@ -75,8 +75,37 @@ fn errors_are_tool_errors_not_crashes() {
     let mut s = Server::new(Box::new(Headless::default()));
     let r = call(&mut s, 1, "tools/call", json!({"name": "execute", "arguments": {"command": "circle", "params": {"center": "x"}}}));
     assert_eq!(r["result"]["isError"], true);
-    let r = call(&mut s, 2, "tools/call", json!({"name": "screenshot", "arguments": {}}));
-    assert_eq!(r["result"]["isError"], true);
+    // Every UI-only tool headless is a tool error telling the agent to use render instead.
+    for (i, name) in [
+        "screenshot",
+        "ui_inspect",
+        "ui_elements",
+        "ui_menu_list",
+        "ui_key",
+        "ui_text",
+        "ui_click_screen",
+        "ui_move",
+        "ui_drag",
+        "ui_set",
+        "ui_resize",
+        "ui_focus",
+        "quit",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let args = match *name {
+            "ui_menu_invoke" => json!({"command": "x"}),
+            "ui_key" => json!({"key": "a"}),
+            "ui_text" => json!({"text": "a"}),
+            "ui_click" | "ui_click_screen" | "ui_move" => json!({"x": 1, "y": 2}),
+            "ui_drag" => json!({"x": 1, "y": 2, "to": [3, 4]}),
+            "ui_resize" => json!({"width": 800, "height": 600}),
+            _ => json!({}),
+        };
+        let r = call(&mut s, 10 + i as u64, "tools/call", json!({"name": name, "arguments": args}));
+        assert_eq!(r["result"]["isError"], true, "{name} must be a tool error: {r}");
+    }
     assert!(s.handle_line("{not json").unwrap().contains("-32700"));
 }
 
@@ -98,6 +127,18 @@ fn bad_tool_calls_are_invalid_params() {
         json!({"name": "query_entities", "arguments": {"type": 7}}),
         json!({"name": "query_entities", "arguments": {"layer": ["0"]}}),
         json!({"name": "query_entities", "arguments": {"offset": -1}}),
+        json!({"name": "ui_click", "arguments": {"x": 1}}),
+        json!({"name": "ui_click", "arguments": {"x": 1, "y": 2, "space": "galaxy"}}),
+        json!({"name": "ui_click", "arguments": {"x": 1, "y": 2, "button": "middle"}}),
+        json!({"name": "ui_click_screen", "arguments": {"x": 1, "y": 2, "button": "double"}}),
+        json!({"name": "ui_drag", "arguments": {"x": 1, "y": 2}}),
+        json!({"name": "ui_drag", "arguments": {"x": 1, "y": 2, "to": [3]}}),
+        json!({"name": "ui_key", "arguments": {}}),
+        json!({"name": "ui_key", "arguments": {"key": 5}}),
+        json!({"name": "ui_text", "arguments": {}}),
+        json!({"name": "ui_menu_invoke", "arguments": {}}),
+        json!({"name": "ui_resize", "arguments": {"width": 800}}),
+        json!({"name": "ui_elements", "arguments": {"focused": "yes"}}),
     ];
     for (i, params) in bad.into_iter().enumerate() {
         let r = call(&mut s, i as u64, "tools/call", params.clone());
@@ -138,4 +179,42 @@ fn list_commands_filter_matches_names_not_docs() {
     assert!(!ids.contains(&"qselect"), "QSELECT only mentions circles in its docs: {ids:?}");
     let r = tool(&mut s, "list_commands", json!({"filter": "pl"}));
     assert!(r.as_array().unwrap().iter().any(|c| c["id"] == "pline"), "aliases and ids match");
+}
+
+#[test]
+fn cmdline_state_and_enter_round_trip() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let st = tool(&mut s, "cmdline_state", json!({}));
+    assert_eq!(st["prompt"], "Command:", "{st}");
+    assert_eq!(st["running"], Value::Null, "{st}");
+    tool(&mut s, "command_line", json!({"text": "line 0,0 10,0"}));
+    let st = tool(&mut s, "cmdline_state", json!({}));
+    assert!(st["running"].is_string(), "LINE waits for more points: {st}");
+    let st = tool(&mut s, "press_enter", json!({}));
+    assert!(st.get("output").is_some(), "enter replies with prompt state: {st}");
+    tool(&mut s, "cancel", json!({}));
+    let st = tool(&mut s, "cmdline_state", json!({}));
+    assert_eq!(st["running"], Value::Null, "{st}");
+}
+
+#[test]
+fn headless_tool_list_hides_ui_tools() {
+    let mut s = Server::new(Box::new(Headless::default()));
+    let tools = call(&mut s, 2, "tools/list", json!({}));
+    let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    for n in ["command_line", "execute", "cmdline_state", "press_enter", "cancel", "render"] {
+        assert!(names.contains(&n), "{n} must be listed headless: {names:?}");
+    }
+    for n in ["screenshot", "ui_inspect", "ui_elements", "ui_menu_list", "ui_key", "quit"] {
+        assert!(!names.contains(&n), "{n} must be hidden headless: {names:?}");
+    }
+}
+
+#[test]
+fn ui_set_accepts_free_form_object() {
+    // check_args must not reject unknown UiState keys: validation happens in the app.
+    let mut s = Server::new(Box::new(Headless::default()));
+    let r = call(&mut s, 1, "tools/call", json!({"name": "ui_set", "arguments": {"theme": "dark"}}));
+    // Headless has no UI, so it is a tool error — but never invalid params (-32602).
+    assert_eq!(r["result"]["isError"], true, "{r}");
 }

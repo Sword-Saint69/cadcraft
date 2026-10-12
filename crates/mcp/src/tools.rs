@@ -27,11 +27,39 @@ pub fn tool_definitions(has_ui: bool) -> Value {
         json!({"name": "open", "description": "Open a DXF file.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}),
         json!({"name": "save", "description": "Save the drawing (DXF or DWG by extension). A .svg, .png or .pdf path exports instead: the drawing keeps its name and unsaved changes.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}}),
         json!({"name": "cancel", "description": "Press Escape: cancel the running command (or clear the selection).", "inputSchema": {"type": "object", "properties": {}}}),
+        json!({"name": "cmdline_state", "description": "Current command-line state: prompt text, running command, keywords, accepted input kinds and history tail. Read-only poll; never changes the drawing.",
+            "inputSchema": {"type": "object", "properties": {}}}),
+        json!({"name": "press_enter", "description": "Press Enter at the command line: accept the default, finish the command or repeat the last one. A refused Enter is reported as isError with the message.",
+            "inputSchema": {"type": "object", "properties": {}}}),
     ];
     if has_ui {
         tools.push(json!({"name": "screenshot", "description": "Screenshot the CADCraft window (PNG).", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}}));
         tools.push(json!({"name": "ui_inspect", "description": "UI state: panels, canvas rect, view, cursor and snap, performance.", "inputSchema": {"type": "object", "properties": {}}}));
-        tools.push(json!({"name": "ui_click", "description": "Click in the drawing area at world coordinates (or screen with space:\"screen\"). Right button = Enter.", "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "space": {"type": "string"}, "button": {"type": "string"}}, "required": ["x", "y"]}}));
+        tools.push(json!({"name": "ui_click", "description": "Click in the drawing area at world coordinates (or screen with space:\"screen\"). Right button = Enter.", "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "space": {"type": "string", "enum": ["world", "screen"]}, "button": {"type": "string", "enum": ["left", "right"]}}, "required": ["x", "y"]}}));
+        tools.push(json!({"name": "ui_elements", "description": "Observed toolbar, tab, drafting and layer-palette controls from the latest UI frame. Filters match exactly. Each entry has its real egui id, label, role, rectangle, enabled/visible/selected state and focus.",
+            "inputSchema": {"type": "object", "properties": {"label": {"type": "string"}, "role": {"type": "string"}, "focused": {"type": "boolean"}}}}));
+        tools.push(json!({"name": "ui_menu_list", "description": "The menu tree (menus with children items: label, command, shortcut, enabled).",
+            "inputSchema": {"type": "object", "properties": {}}}));
+        tools.push(json!({"name": "ui_menu_invoke", "description": "Invoke a menu item like a click (interactive prompt sequence starts). Use ui_menu_list to find the command id.",
+            "inputSchema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}));
+        tools.push(json!({"name": "ui_key", "description": "Synthetic keyboard key press (queued as real egui key events). Poll ui_inspect or ui_elements for the result. Key names follow egui (a-z, 0-9, enter, escape, tab, space, delete, backspace, arrows…).",
+            "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "cmd": {"type": "boolean"}, "shift": {"type": "boolean"}, "alt": {"type": "boolean"}, "ctrl": {"type": "boolean"}}, "required": ["key"]}}));
+        tools.push(json!({"name": "ui_text", "description": "Synthetic text input (queued as a real egui text event).",
+            "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}));
+        tools.push(json!({"name": "ui_click_screen", "description": "Real egui click at screen points (reaches every widget, unlike ui_click which defaults to world).",
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "button": {"type": "string", "enum": ["left", "right", "middle"]}, "shift": {"type": "boolean"}, "ctrl": {"type": "boolean"}}, "required": ["x", "y"]}}));
+        tools.push(json!({"name": "ui_move", "description": "Real egui pointer move to screen points.",
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}}, "required": ["x", "y"]}}));
+        tools.push(json!({"name": "ui_drag", "description": "Real press, move and release from (x, y) to `to` in screen points (drags the command line edge, the ViewCube ring…).",
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "to": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}, "button": {"type": "string", "enum": ["left", "right", "middle"]}}, "required": ["x", "y", "to"]}}));
+        tools.push(json!({"name": "ui_set", "description": "Show/hide palettes, toolbars, command line, ViewCube…; theme system|light|dark; saveFormat dxf|dwg; saveVersion 2000…2018. Free-form UiState fields; invalid values return isError without changing layout.",
+            "inputSchema": {"type": "object"}}));
+        tools.push(json!({"name": "ui_resize", "description": "Resize the app window (screen points).",
+            "inputSchema": {"type": "object", "properties": {"width": {"type": "number"}, "height": {"type": "number"}}, "required": ["width", "height"]}}));
+        tools.push(json!({"name": "ui_focus", "description": "Activate the native app window. Does not assign focus to a widget.",
+            "inputSchema": {"type": "object", "properties": {}}}));
+        tools.push(json!({"name": "quit", "description": "Quit the app without the unsaved-changes prompt (programmatic quit never opens dialogs). Only when connected to the app.",
+            "inputSchema": {"type": "object", "properties": {}}}));
     }
     json!({ "tools": tools })
 }
@@ -44,8 +72,8 @@ fn err_text(e: &str) -> Value {
     json!({"content": [{"type": "text", "text": e}], "isError": true})
 }
 
-/// Whether `v` fits the subset of JSON Schema the tool definitions use: `type`, `items`,
-/// `minItems`, `maxItems` and `minimum`.
+/// Whether `v` fits the subset of JSON Schema the tool definitions use: `type`, `enum`,
+/// `items`, `minItems`, `maxItems` and `minimum`.
 fn fits(v: &Value, schema: &Value) -> bool {
     let typed = match schema["type"].as_str() {
         Some("string") => v.is_string(),
@@ -57,8 +85,10 @@ fn fits(v: &Value, schema: &Value) -> bool {
         Some("object") => v.is_object(),
         _ => true,
     };
+    let in_enum = schema.get("enum").and_then(Value::as_array).is_none_or(|allowed| allowed.iter().any(|e| e == v));
     let len = v.as_array().map(Vec::len);
     typed
+        && in_enum
         && schema["minimum"].as_f64().is_none_or(|m| v.as_f64().is_none_or(|f| f >= m))
         && schema["minItems"].as_u64().is_none_or(|m| len.is_none_or(|n| n as u64 >= m))
         && schema["maxItems"].as_u64().is_none_or(|m| len.is_none_or(|n| n as u64 <= m))
@@ -77,12 +107,14 @@ fn check_args(name: &str, args: &Value) -> Result<Value, String> {
         Value::Object(_) => args.clone(),
         _ => return Err(format!("`arguments` of `{name}` must be an object")),
     };
+    // Schemas without `properties` (e.g. ui_set's free-form UiState object) accept any object.
     for key in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
         if a.get(key).is_none_or(Value::is_null) {
             return Err(format!("`{name}` needs `{key}`"));
         }
     }
-    for (key, prop) in schema["properties"].as_object().into_iter().flatten() {
+    let Some(props) = schema.get("properties").and_then(Value::as_object) else { return Ok(a) };
+    for (key, prop) in props {
         if let Some(v) = a.get(key).filter(|v| !v.is_null())
             && !fits(v, prop)
         {
@@ -123,9 +155,23 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, args: &Value) -> Result<Value,
         "open" => b.call("app.open", a),
         "save" => b.call("app.save", a),
         "cancel" => b.call("cmdline.key", json!({"key": "escape"})),
+        "cmdline_state" => b.call("cmdline.state", json!({})),
+        "press_enter" => b.call("cmdline.key", json!({"key": "enter"})),
         "screenshot" => b.call("ui.screenshot", a),
         "ui_inspect" => b.call("ui.inspect", json!({})),
         "ui_click" => b.call("ui.pointer", a),
+        "ui_elements" => b.call("ui.elements", a),
+        "ui_menu_list" => b.call("ui.menu.list", json!({})),
+        "ui_menu_invoke" => b.call("ui.menu.invoke", a),
+        "ui_key" => b.call("ui.key", a),
+        "ui_text" => b.call("ui.text", a),
+        "ui_click_screen" => b.call("ui.click", a),
+        "ui_move" => b.call("ui.move", a),
+        "ui_drag" => b.call("ui.drag", a),
+        "ui_set" => b.call("ui.set", a),
+        "ui_resize" => b.call("ui.resize", a),
+        "ui_focus" => b.call("ui.focus", json!({})),
+        "quit" => b.call("app.quit", json!({})),
         "render" => {
             return Ok(match b.call("ui.render", a) {
                 Ok(v) => match v.get("pngBase64").and_then(Value::as_str) {
