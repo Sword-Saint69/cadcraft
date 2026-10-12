@@ -1,22 +1,31 @@
 # CADCraft and AI agents (MCP)
 
 CADCraft speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
+Any MCP client — Claude Code, Claude Desktop, VS Code, or your own harness —
+can draft, edit, dimension, inspect, and render drawings, either headless
+(in-process, no window) or bridged to the running app (watch the agent draw).
 
-## Install as a Claude Code plugin
+## Quick start: install as a Claude Code plugin
 
-One install wires the MCP server, a drafting skill, and `/cadcraft:status` +
-`/cadcraft:draft` commands (see `plugins/cadcraft/README.md`):
+One install wires the MCP server, a drafting skill, and the `/cadcraft:status`
++ `/cadcraft:draft` commands (detail: `plugins/cadcraft/README.md`):
 
 ```sh
 claude plugin marketplace add storytold/cadcraft
 claude plugin install cadcraft@cadcraft-marketplace
 ```
 
-The plugin starts a headless session by default. To let Claude drive the live
-window instead, start the app with `cadcraft --control 7979` and set the
-plugin's `control_port` option to `7979`.
+Then just talk to Claude: "draw a 100x60 plate with four 8mm holes" or
+`/cadcraft:draft a 100x60 plate with four 8mm holes`.
 
-## Start it manually
+The plugin starts a **headless** session by default. To let Claude drive the
+**live window** instead, start the app with `cadcraft --control 7979` and set
+the plugin's `control_port` option to `7979` (`/config` → `cadcraft`).
+
+## Setup without the plugin
+
+You need the `cadcraft-cli` binary on `PATH` (`cargo install --path
+apps/cadcraft-cli`, or a release package). Two modes:
 
 ```sh
 # Headless: an in-process drawing session, no window.
@@ -27,25 +36,127 @@ cadcraft --control 7979 &
 cadcraft-cli mcp --connect 127.0.0.1:7979
 ```
 
-`--connect` needs the app's `HOST:PORT`. Without one (or with an unknown argument) `cadcraft-cli mcp`
-exits with an error instead of falling back to a headless session, so a client meant for the app
-never edits a separate drawing by mistake. If the app can't be reached, startup fails too.
+`--connect` needs the app's `HOST:PORT`. Without one (or with an unknown
+argument) `cadcraft-cli mcp` exits with an error instead of falling back to a
+headless session, so a client meant for the app never edits a separate
+drawing by mistake. If the app can't be reached, startup fails too.
 
-Example client configuration (Claude Code / Claude Desktop):
+Client configuration:
 
 ```json
+// Claude Code / Claude Desktop / generic client, headless:
 { "mcpServers": { "cadcraft": { "command": "cadcraft-cli", "args": ["mcp"] } } }
-```
 
-VS Code (`mcpServers` in settings, bridged to a running app):
-
-```json
+// Bridged to a running app (also works in VS Code `mcpServers` settings):
 { "mcpServers": { "cadcraft": { "command": "cadcraft-cli", "args": ["mcp", "--connect", "127.0.0.1:7979"] } } }
 ```
 
 Run `cadcraft-cli mcp --help` to print the full tool list with input schemas.
 
-## Tools
+## How to work with it
+
+There are two ways to draw. **Command line** (`command_line`) types exactly
+like a person at an AutoCAD-style prompt — fastest for everyday drafting.
+**JSON** (`execute`) runs any command with parameters and never opens a
+dialog — best for exact values. `list_commands` shows every id with its
+parameter docs; `filter` narrows it (`{"filter": "dim"}`).
+
+Coordinates are drawing units, y up. Points are `x,y`; `@dx,dy` is relative;
+`@dist<angle` is polar; spaces act as Enter; empty text is Enter.
+
+### Draw, edit, dimension
+
+```
+command_line {"text": "rectang 0,0 100,60"}        # outline, one call
+execute {"command": "circle", "params": {"center": [10, 10], "radius": 4}}
+execute {"command": "layer.new", "params": {"name": "Center", "color": "red", "current": true}}
+command_line {"text": "line -5,30 105,30"}          # centre line on the red layer
+command_line {"text": "dimlinear 0,0 100,0 50,-8"}  # dimension below the plate
+```
+
+Multi-line `TEXT` keeps prompting until an empty line, so end scripts with a
+blank line: `script {"text": "TEXT 0,-10 5 0 PLATE 100x60\n\n"}`. `cancel`
+is Escape, `press_enter` is Enter, and `cmdline_state` polls the prompt
+(prompt text, running command, keywords, accepted input, history) without
+typing anything.
+
+### Verify everything
+
+```
+inspect_drawing {}                                  # counts, extents, layers, blocks, undo
+query_entities {"type": "Circle", "limit": 10}      # filtered geometry with handles
+query_entities {"window": [[0, 0], [50, 60]]}       # true geometry in a window…
+query_entities {"window": [[0, 0], [50, 60]], "crossing": false}  # …or entirely inside it
+render {}                                           # look at it (PNG, fit-to-extents)
+```
+
+`query_entities` reports `count` (every match) and `returned` (this page);
+page with `offset`/`limit` (default 500). Always verify after drawing —
+counts first, then a render.
+
+### Files
+
+```
+new_drawing {"metric": true}     # fresh metric drawing
+open {"path": "bracket.dxf"}     # DXF in
+save {}                          # save back
+save {"path": "out.pdf"}         # .svg/.png/.pdf exports instead (drawing keeps its name)
+```
+
+### Prompts
+
+Shortcuts clients can offer directly: `draft {task, units?}` builds a guided
+drafting brief from plain language ("a 100x60 plate with four 8mm holes"),
+and `review` runs the full counts → spot-check → render review.
+
+## Driving the live app (bridged mode only)
+
+These tools appear only with `--connect`. Synthetic input queues real egui
+events — poll `ui_inspect` or `ui_elements` before the next action.
+
+```
+screenshot {}                        # PNG of the window
+ui_inspect {}                        # panels, canvas rect, view, cursor/snap, perf, focus
+ui_elements {"role": "button"}       # find widgets (exact label/role/focused filters)
+ui_menu_list {}                      # menu tree, then…
+ui_menu_invoke {"command": "zoom.extents"}  # …click one like a user
+ui_click {"x": 50, "y": 30}          # drawing click, world coords (right button = Enter)
+ui_click_screen {"x": 400, "y": 200} # real widget click, screen points
+ui_move {"x": 400, "y": 200}         # hover / move
+ui_drag {"x": 400, "y": 100, "to": [400, 160]}  # drag (command-line edge, ViewCube…)
+ui_key {"key": "enter"}              # key press (egui names; cmd/shift/alt/ctrl modifiers)
+ui_text {"text": "Walls"}            # type text
+ui_set {"theme": "dark"}             # palettes, theme, saveFormat, saveVersion…
+ui_resize {"width": 1600, "height": 1000}
+ui_focus {}                          # bring the window forward
+quit {}                              # quit without the save prompt (has destructiveHint)
+```
+
+## Errors, and what they mean
+
+- **JSON-RPC `-32602` (invalid params):** unknown tool, `arguments` not an
+  object, missing/wrong-typed argument. `command_line {}` never presses Enter
+  by accident — it is rejected here.
+- **`isError: true` result:** the tool ran and the drawing refused it (bad
+  point, unknown command, bad layer). Read the message, fix the input.
+- **Lost reply on a mutation** (`may or may not have been applied`): the
+  request reached the app but the reply was lost. `inspect_drawing` first —
+  never blindly resend, or you get two circles. Read-only tools
+  (`inspect_drawing`, `query_entities`, `cmdline_state`, …) are safe to retry.
+- **Timeout:** `not-run` means it never started (safe to resend);
+  `may-have-run` means inspect first.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Client can't start the server | `cadcraft-cli` not on `PATH`, or (plugin) set `CADCRAFT_CLI` to its full path |
+| Bridged client edits nothing visible | App wasn't started with `--control PORT`, or the port mismatches `--connect` / `control_port` |
+| `no UI in headless mode; use render` | That tool needs `--connect`; headless has no window — use `render` instead of `screenshot` |
+| `unknown method` on old app builds | Update the app: new MCP tools need a matching control channel |
+| Prompt stuck mid-command | `cmdline_state` to see what it waits for, answer it, or `cancel` |
+
+## Tools reference
 
 | Tool | What it does |
 |---|---|
