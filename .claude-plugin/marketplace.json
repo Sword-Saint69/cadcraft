@@ -1,0 +1,19 @@
+{
+  "name": "cadcraft-marketplace",
+  "description": "Plugins for CADCraft, the open-source AutoCAD-class 2D CAD drafting app.",
+  "owner": {
+    "name": "CADCraft contributors",
+    "url": "https://github.com/storytold/cadcraft"
+  },
+  "plugins": [
+    {
+      "name": "cadcraft",
+      "displayName": "CADCraft",
+      "description": "Drive CADCraft drafting over MCP: command line, inspect, render, and live UI control.",
+      "source": "./plugins/cadcraft",
+      "version": "0.5.0",
+      "category": "productivity",
+      "tags": ["cad", "drafting", "mcp"]
+    }
+  ]
+}

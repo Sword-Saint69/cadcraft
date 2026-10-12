@@ -1,0 +1,30 @@
+{
+  "name": "cadcraft",
+  "displayName": "CADCraft",
+  "version": "0.5.0",
+  "description": "Drive CADCraft 2D CAD drafting from Claude Code: command line, drawing inspect, render, and live UI control over MCP.",
+  "author": {
+    "name": "CADCraft contributors",
+    "url": "https://github.com/storytold/cadcraft"
+  },
+  "homepage": "https://github.com/storytold/cadcraft/blob/main/docs/mcp.md",
+  "repository": "https://github.com/storytold/cadcraft",
+  "license": "MIT",
+  "keywords": ["cad", "drafting", "autocad", "mcp", "drawing"],
+  "userConfig": {
+    "control_port": {
+      "type": "string",
+      "title": "Control port",
+      "description": "Port of a running CADCraft app started with --control PORT (e.g. 7979). Leave empty for a headless in-process session."
+    }
+  },
+  "mcpServers": {
+    "cadcraft": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/cadcraft-mcp.sh",
+      "args": [],
+      "env": {
+        "CADCRAFT_CONTROL_PORT": "${user_config.control_port}"
+      }
+    }
+  }
+}

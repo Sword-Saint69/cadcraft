@@ -2,7 +2,21 @@
 
 CADCraft speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
 
-## Start it
+## Install as a Claude Code plugin
+
+One install wires the MCP server, a drafting skill, and `/cadcraft:status` +
+`/cadcraft:draft` commands (see `plugins/cadcraft/README.md`):
+
+```sh
+claude plugin marketplace add storytold/cadcraft
+claude plugin install cadcraft@cadcraft-marketplace
+```
+
+The plugin starts a headless session by default. To let Claude drive the live
+window instead, start the app with `cadcraft --control 7979` and set the
+plugin's `control_port` option to `7979`.
+
+## Start it manually
 
 ```sh
 # Headless: an in-process drawing session, no window.
