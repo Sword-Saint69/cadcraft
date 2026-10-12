@@ -69,10 +69,18 @@ Run `cadcraft-cli mcp --help` to print the full tool list with input schemas.
 
 Resources: `cadcraft://drawing` (inspect JSON) and `cadcraft://commands` (catalog).
 
+Prompts: `draft {task, units?}` (guided drafting from plain language) and
+`review` (counts, spot-checks, render). Unknown prompts and a `draft` without
+`task` are JSON-RPC errors `-32602`.
+
 Arguments are checked against each tool's input schema. An unknown tool, `arguments` that aren't an
 object, a missing required argument or one of the wrong type is a JSON-RPC error `-32602` (invalid
 params), so `command_line {}` never presses Enter by accident. A tool that runs and fails (a bad
 point, an unknown command) returns a result with `isError: true` and the message.
+Read-only tools (`list_commands`, `inspect_drawing`, `query_entities`,
+`cmdline_state`, `ui_inspect`, `ui_elements`, `ui_menu_list`) carry
+`readOnlyHint`, and `quit` carries `destructiveHint`, so clients can show
+confirmations where they matter.
 
 ## A typical session
 

@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::{Headless, Server};
+use crate::{Headless, Remote, Server};
 
 fn call(s: &mut Server, id: u64, method: &str, params: Value) -> Value {
     let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string();
@@ -217,4 +217,97 @@ fn ui_set_accepts_free_form_object() {
     let r = call(&mut s, 1, "tools/call", json!({"name": "ui_set", "arguments": {"theme": "dark"}}));
     // Headless has no UI, so it is a tool error — but never invalid params (-32602).
     assert_eq!(r["result"]["isError"], true, "{r}");
+}
+
+#[test]
+fn prompts_list_and_get() {
+    use crate::tools::tool_definitions;
+    let mut s = Server::new(Box::new(Headless::default()));
+    let r = call(&mut s, 1, "prompts/list", json!({}));
+    let names: Vec<&str> = r["result"]["prompts"].as_array().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
+    assert!(names.contains(&"draft") && names.contains(&"review"), "{names:?}");
+    let r = call(&mut s, 2, "prompts/get", json!({"name": "draft", "arguments": {"task": "a 100x60 plate"}}));
+    let text = r["result"]["messages"][0]["content"]["text"].as_str().unwrap_or("");
+    assert!(text.contains("100x60 plate"), "{r}");
+    let r = call(&mut s, 3, "prompts/get", json!({"name": "review"}));
+    assert_eq!(r["result"]["messages"][0]["role"], "user");
+    // Unknown prompt and missing required argument are invalid params, never tool errors.
+    for (i, params) in [json!({"name": "nope"}), json!({"name": "draft"}), json!({"name": "draft", "arguments": {}})].into_iter().enumerate() {
+        let r = call(&mut s, 10 + i as u64, "prompts/get", params.clone());
+        assert_eq!(r["error"]["code"], -32602, "{params} -> {r}");
+    }
+    // Readers carry readOnlyHint, quit carries destructiveHint.
+    let defs = tool_definitions(true);
+    let ann = |tool: &str| {
+        defs["tools"].as_array().unwrap().iter().find(|t| t["name"] == tool).and_then(|t| t.get("annotations")).cloned().unwrap_or(Value::Null)
+    };
+    assert_eq!(ann("inspect_drawing"), json!({"readOnlyHint": true}));
+    assert_eq!(ann("ui_menu_list"), json!({"readOnlyHint": true}));
+    assert_eq!(ann("quit"), json!({"destructiveHint": true}));
+    assert!(ann("execute").is_null() && ann("render").is_null());
+}
+
+/// Every tool routes to its control-channel method: a fake app records what arrives.
+#[test]
+fn bridged_tools_route_to_expected_control_methods() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc;
+
+    let cases: Vec<(&str, Value, &str)> = vec![
+        ("command_line", json!({"text": "circle 0,0 1"}), "cmdline.input"),
+        ("script", json!({"text": "circle 0,0 1"}), "cmdline.script"),
+        ("cmdline_state", json!({}), "cmdline.state"),
+        ("press_enter", json!({}), "cmdline.key"),
+        ("cancel", json!({}), "cmdline.key"),
+        ("execute", json!({"command": "undo"}), "engine.execute"),
+        ("list_commands", json!({}), "engine.commands"),
+        ("inspect_drawing", json!({}), "drawing.inspect"),
+        ("query_entities", json!({"type": "Circle"}), "engine.execute"),
+        ("new_drawing", json!({}), "engine.execute"),
+        ("open", json!({"path": "a.dxf"}), "app.open"),
+        ("save", json!({}), "app.save"),
+        ("render", json!({}), "ui.render"),
+        ("screenshot", json!({}), "ui.screenshot"),
+        ("ui_inspect", json!({}), "ui.inspect"),
+        ("ui_click", json!({"x": 1, "y": 2}), "ui.pointer"),
+        ("ui_elements", json!({}), "ui.elements"),
+        ("ui_menu_list", json!({}), "ui.menu.list"),
+        ("ui_menu_invoke", json!({"command": "zoom.extents"}), "ui.menu.invoke"),
+        ("ui_key", json!({"key": "a"}), "ui.key"),
+        ("ui_text", json!({"text": "hi"}), "ui.text"),
+        ("ui_click_screen", json!({"x": 1, "y": 2}), "ui.click"),
+        ("ui_move", json!({"x": 1, "y": 2}), "ui.move"),
+        ("ui_drag", json!({"x": 1, "y": 2, "to": [3, 4]}), "ui.drag"),
+        ("ui_set", json!({"theme": "dark"}), "ui.set"),
+        ("ui_resize", json!({"width": 800, "height": 600}), "ui.resize"),
+        ("ui_focus", json!({}), "ui.focus"),
+        ("quit", json!({}), "app.quit"),
+    ];
+    let n = cases.len();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let (tx, rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (conn, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(conn.try_clone().unwrap());
+        let mut writer = conn;
+        for _ in 0..n {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let req: Value = serde_json::from_str(&line).unwrap();
+            tx.send(req["method"].as_str().unwrap().to_string()).unwrap();
+            writeln!(writer, "{}", json!({"id": req["id"].clone(), "ok": true, "result": {}})).unwrap();
+        }
+    });
+    let mut s = Server::new(Box::new(Remote::connect(&addr).unwrap()));
+    for (tool_name, args, _want) in &cases {
+        let r = call(&mut s, 99, "tools/call", json!({"name": tool_name, "arguments": args}));
+        assert!(r.get("error").is_none(), "{tool_name} failed: {r}");
+        assert_ne!(r["result"]["isError"], json!(true), "{tool_name} failed: {r}");
+    }
+    server.join().unwrap();
+    let got: Vec<String> = rx.try_iter().collect();
+    let want: Vec<String> = cases.iter().map(|c| c.2.to_string()).collect();
+    assert_eq!(got, want);
 }

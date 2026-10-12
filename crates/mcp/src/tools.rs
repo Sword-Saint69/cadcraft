@@ -61,6 +61,20 @@ pub fn tool_definitions(has_ui: bool) -> Value {
         tools.push(json!({"name": "quit", "description": "Quit the app without the unsaved-changes prompt (programmatic quit never opens dialogs). Only when connected to the app.",
             "inputSchema": {"type": "object", "properties": {}}}));
     }
+    // Client hints: pure readers are read-only, quitting the app is destructive.
+    // `render`/`screenshot` stay unmarked: with a `path` they write a file.
+    for t in &mut tools {
+        let ann = match t.get("name").and_then(Value::as_str).unwrap_or("") {
+            "list_commands" | "inspect_drawing" | "query_entities" | "cmdline_state" | "ui_inspect" | "ui_elements" | "ui_menu_list" => {
+                json!({"readOnlyHint": true})
+            }
+            "quit" => json!({"destructiveHint": true}),
+            _ => continue,
+        };
+        if let Some(o) = t.as_object_mut() {
+            o.insert("annotations".into(), ann);
+        }
+    }
     json!({ "tools": tools })
 }
 

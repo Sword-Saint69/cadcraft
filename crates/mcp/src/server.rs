@@ -106,7 +106,7 @@ impl Server {
                 let version = if SUPPORTED.contains(&asked) { asked } else { PROTOCOL_VERSION };
                 Ok(json!({
                     "protocolVersion": version,
-                    "capabilities": {"tools": {"listChanged": false}, "resources": {"listChanged": false}},
+                    "capabilities": {"tools": {"listChanged": false}, "resources": {"listChanged": false}, "prompts": {"listChanged": false}},
                     "serverInfo": {"name": "cadcraft", "title": "CADCraft", "version": env!("CARGO_PKG_VERSION")},
                     "instructions": format!("{INSTRUCTIONS} Backend: {}.", self.backend.describe()),
                 }))
@@ -131,6 +131,40 @@ impl Server {
                 }
                 .map_err(|e| (-32603, e))?;
                 Ok(json!({"contents": [{"uri": uri, "mimeType": "application/json", "text": v.to_string()}]}))
+            }
+            "prompts/list" => Ok(json!({"prompts": [
+                {"name": "draft", "description": "Draft something in CADCraft from a plain-language task.",
+                 "arguments": [
+                    {"name": "task", "description": "What to draw (sizes, positions).", "required": true},
+                    {"name": "units", "description": "Drawing units, e.g. mm. Assumed when the task gives none.", "required": false},
+                 ]},
+                {"name": "review", "description": "Review the active drawing: counts, geometry spot-checks, then look at a render."},
+            ]})),
+            "prompts/get" => {
+                let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+                let arg = |k: &str| params.get("arguments").and_then(|a| a.get(k)).and_then(Value::as_str);
+                let text = match name {
+                    "draft" => {
+                        let Some(task) = arg("task") else {
+                            return Err((INVALID_PARAMS, "`draft` needs a `task` argument".to_string()));
+                        };
+                        let units = arg("units").map(|u| format!(" Units: {u}.")).unwrap_or_default();
+                        format!(
+                            "Draft this in the active CADCraft drawing: {task}.{units} Smallest sensible defaults \
+                            when the task is ambiguous, and state them. Draw with `command_line` (AutoCAD syntax, \
+                            e.g. `rectang 0,0 100,60`; spaces act as Enter) or `execute` with JSON for exact \
+                            parameters. Then verify with `inspect_drawing` and `query_entities`, look with \
+                            `render`, and report what was drawn with its real extents."
+                        )
+                    }
+                    "review" => "Review the active CADCraft drawing: 1. `inspect_drawing` for counts, extents, \
+                        layers, blocks, layouts and undo history. 2. Spot-check key geometry with \
+                        `query_entities` (filter by type, layer or window). 3. Look with `render`. Report counts \
+                        and extents, anything unexpected, and what the drawing shows."
+                        .to_string(),
+                    _ => return Err((INVALID_PARAMS, format!("unknown prompt `{name}`"))),
+                };
+                Ok(json!({"description": name, "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}))
             }
             _ => Err((METHOD_NOT_FOUND, format!("method `{method}` not found"))),
         }
